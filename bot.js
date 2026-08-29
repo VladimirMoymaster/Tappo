@@ -45,6 +45,7 @@ app.listen(PORT, () => {
 const REFERRAL_BONUS = 50;
 const MIN_TASK_REWARD = 15;
 const MAX_TASK_REWARD = 50;
+const WELCOME_BONUS = 20; // 🎁 Приветственный бонус
 
 // Функции для работы с базой данных
 const db = {
@@ -59,8 +60,14 @@ const db = {
             await client.query('BEGIN');
             
             const result = await client.query(
-                'INSERT INTO users (id, username, first_name, referred_by) VALUES ($1, $2, $3, $4) RETURNING *',
-                [userId, username, firstName, referredBy]
+                'INSERT INTO users (id, username, first_name, referred_by, balance) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+                [userId, username, firstName, referredBy, WELCOME_BONUS]
+            );
+            
+            // Записываем транзакцию о получении приветственного бонуса
+            await client.query(
+                'INSERT INTO transactions (user_id, amount, type, description) VALUES ($1, $2, $3, $4)',
+                [userId, WELCOME_BONUS, 'welcome_bonus', '🎉 Приветственный бонус']
             );
             
             // Начисляем бонус рефереру
@@ -245,7 +252,8 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
             user = await db.createUser(userId, username, firstName, referredBy);
             
             let welcomeMessage = `🎉 Добро пожаловать в Tappo⚡️!\n\n`;
-            welcomeMessage += `💰 Зарабатывайте Tick коины, выполняя задания по подписке на каналы\n`;
+            welcomeMessage += `💰 Вам начислен приветственный бонус: <b>${WELCOME_BONUS} коинов</b>!\n\n`;
+            welcomeMessage += `💎 Зарабатывайте Tick коины, выполняя задания по подписке на каналы\n`;
             welcomeMessage += `📢 Создавайте свои задания для продвижения каналов\n`;
             welcomeMessage += `👥 Приглашайте друзей и получайте бонусы\n\n`;
             
@@ -255,7 +263,7 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
             
             welcomeMessage += `Выберите действие в меню ниже:`;
             
-            bot.sendMessage(chatId, welcomeMessage, mainKeyboard);
+            bot.sendMessage(chatId, welcomeMessage, { parse_mode: 'HTML', ...mainKeyboard });
         } else {
             bot.sendMessage(chatId, `👋 С возвращением, ${firstName}!\n\nВыберите действие:`, mainKeyboard);
         }
