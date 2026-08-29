@@ -922,4 +922,305 @@ async function start() {
     console.log(`🌐 Бот доступен по адресу: @tappop_bot`);
 }
 
+// ═══════════════════════════════════════════════════════════
+// 🎫 СИСТЕМА ПРОМОКОДОВ
+// ═══════════════════════════════════════════════════════════
+
+// Функции для работы с промокодами
+const promoDB = {
+    // Создание промокода
+    async createPromo(code, amount, limit, expiresAt = null) {
+        const result = await pool.query(
+            `INSERT INTO promocodes (code, amount, limit, used_count, expires_at, is_active) 
+             VALUES ($1, $2, $3, 0, $4, true) RETURNING *`,
+            [code, amount, limit, expiresAt]
+        );
+        return result.rows[0];
+    },
+
+    // Проверка промокода
+    async getPromo(code) {
+        const result = await pool.query(
+            'SELECT * FROM promocodes WHERE code = $1 AND is_active = true',
+            [code]
+        );
+        return result.rows[0];
+    },
+
+    // Проверка, использовал ли пользователь промокод
+    async hasUserUsedPromo(userId, promoId) {
+        const result = await pool.query(
+            'SELECT id FROM promo_uses WHERE user_id = $1 AND promo_id = $2',
+            [userId, promoId]
+        );
+        return result.rows.length > 0;
+    },
+
+    // Активация промокода
+    async usePromo(userId, promoCode) {
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // Получаем промокод
+            const promoResult = await client.query(
+                'SELECT * FROM promocodes WHERE code = $1 AND is_active = true FOR UPDATE',
+                [promoCode]
+            );
+            const promo = promoResult.rows[0];
+
+            if (!promo) {
+                throw new Error('Промокод не найден или неактивен');
+            }
+
+            // Проверяем срок действия
+            if (promo.expires_at && new Date() > new Date(promo.expires_at)) {
+                throw new Error('Срок действия промокода истек');
+            }
+
+            // Проверяем лимит
+            if (promo.limit !== -1 && promo.used_count >= promo.limit) {
+                throw new Error('Лимит использований промокода исчерпан');
+            }
+
+            // Проверяем, не использовал ли пользователь уже этот промокод
+            const usedCheck = await client.query(
+                'SELECT id FROM promo_uses WHERE user_id = $1 AND promo_id = $2',
+                [userId, promo.id]
+            );
+            if (usedCheck.rows.length > 0) {
+                throw new Error('Вы уже использовали этот промокод');
+            }
+
+            // Записываем использование
+            await client.query(
+                'INSERT INTO promo_uses (user_id, promo_id) VALUES ($1, $2)',
+                [userId, promo.id]
+            );
+
+            // Обновляем счетчик использований
+            await client.query(
+                'UPDATE promocodes SET used_count = used_count + 1 WHERE id = $1',
+                [promo.id]
+            );
+
+            // Начисляем бонус
+            await client.query(
+                'UPDATE users SET balance = balance + $1 WHERE id = $2',
+                [promo.amount, userId]
+            );
+
+            // Записываем транзакцию
+            await client.query(
+                'INSERT INTO transactions (user_id, amount, type, description) VALUES ($1, $2, $3, $4)',
+                [userId, promo.amount, 'promo_bonus', `🎫 Бонус по промокоду: ${promoCode}`]
+            );
+
+            await client.query('COMMIT');
+            return { promo, amount: promo.amount };
+
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    },
+
+    // Получение списка всех промокодов (для админа)
+    async getAllPromocodes() {
+        const result = await pool.query(
+            'SELECT * FROM promocodes ORDER BY created_at DESC'
+        );
+        return result.rows;
+    },
+
+    // Деактивация промокода
+    async deactivatePromo(promoId) {
+        await pool.query(
+            'UPDATE promocodes SET is_active = false WHERE id = $1',
+            [promoId]
+        );
+    }
+};
+
+// Команда для активации промокода (пользовательская)
+bot.onText(/\/promo (.+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    const promoCode = match[1].trim().toUpperCase();
+
+    try {
+        const result = await promoDB.usePromo(userId, promoCode);
+        
+        bot.sendMessage(
+            chatId,
+            `✅ <b>Промокод активирован!</b>\n\n` +
+            `🎫 Код: <b>${promoCode}</b>\n` +
+            `💰 Получено: <b>${result.amount} коинов</b>\n\n` +
+            `🎉 Приятного использования!`,
+            { parse_mode: 'HTML' }
+        );
+
+    } catch (error) {
+        let errorMessage = '❌ ';
+        if (error.message === 'Промокод не найден или неактивен') {
+            errorMessage += 'Промокод не найден или уже неактивен.';
+        } else if (error.message === 'Срок действия промокода истек') {
+            errorMessage += 'Срок действия этого промокода истек.';
+        } else if (error.message === 'Лимит использований промокода исчерпан') {
+            errorMessage += 'Лимит использований этого промокода исчерпан.';
+        } else if (error.message === 'Вы уже использовали этот промокод') {
+            errorMessage += 'Вы уже использовали этот промокод.';
+        } else {
+            errorMessage += error.message;
+        }
+        
+        bot.sendMessage(chatId, errorMessage);
+    }
+});
+
+// Команда для создания промокода (только для админа)
+bot.onText(/\/createpromo (.+) (\d+) (\d+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    if (!isAdmin(userId)) {
+        bot.sendMessage(chatId, '❌ У вас нет прав для этой команды.');
+        return;
+    }
+
+    const code = match[1].trim().toUpperCase();
+    const amount = parseInt(match[2]);
+    const limit = parseInt(match[3]);
+
+    if (isNaN(amount) || amount <= 0) {
+        bot.sendMessage(chatId, '❌ Сумма бонуса должна быть положительным числом.');
+        return;
+    }
+
+    if (limit !== -1 && limit <= 0) {
+        bot.sendMessage(chatId, '❌ Лимит должен быть -1 (безлимитный) или положительным числом.');
+        return;
+    }
+
+    try {
+        const promo = await promoDB.createPromo(code, amount, limit);
+        
+        const limitText = promo.limit === -1 ? '♾️ Безлимитный' : `${promo.limit} использований`;
+        const expiresText = promo.expires_at ? `📅 Истекает: ${new Date(promo.expires_at).toLocaleDateString('ru-RU')}` : '♾️ Без срока';
+
+        bot.sendMessage(
+            chatId,
+            `✅ <b>Промокод создан!</b>\n\n` +
+            `🎫 Код: <b>${promo.code}</b>\n` +
+            `💰 Бонус: <b>${promo.amount} коинов</b>\n` +
+            `👥 Лимит: ${limitText}\n` +
+            `${expiresText}\n\n` +
+            `📋 Пользователи активируют промокод командой:\n` +
+            `<code>/promo ${promo.code}</code>`,
+            { parse_mode: 'HTML' }
+        );
+
+    } catch (error) {
+        console.error('Ошибка создания промокода:', error);
+        bot.sendMessage(chatId, '❌ Ошибка создания промокода. Возможно, такой код уже существует.');
+    }
+});
+
+// Команда для просмотра всех промокодов (только для админа)
+bot.onText(/\/promolist/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    if (!isAdmin(userId)) {
+        bot.sendMessage(chatId, '❌ У вас нет прав для этой команды.');
+        return;
+    }
+
+    try {
+        const promos = await promoDB.getAllPromocodes();
+
+        if (promos.length === 0) {
+            bot.sendMessage(chatId, '📋 Промокодов пока нет.');
+            return;
+        }
+
+        let message = '📋 <b>Список промокодов</b>\n\n';
+
+        promos.forEach((promo, index) => {
+            const status = promo.is_active ? '🟢 Активен' : '🔴 Неактивен';
+            const limitText = promo.limit === -1 ? '♾️' : promo.limit;
+            const expiresText = promo.expires_at ? new Date(promo.expires_at).toLocaleDateString('ru-RU') : '♾️';
+            
+            message += `${index + 1}. <b>${promo.code}</b>\n`;
+            message += `   💰 ${promo.amount} коинов\n`;
+            message += `   👥 ${promo.used_count}/${limitText}\n`;
+            message += `   📅 ${expiresText}\n`;
+            message += `   ${status}\n\n`;
+        });
+
+        bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+
+    } catch (error) {
+        console.error('Ошибка получения списка промокодов:', error);
+        bot.sendMessage(chatId, '❌ Ошибка получения списка промокодов.');
+    }
+});
+
+// Команда для деактивации промокода (только для админа)
+bot.onText(/\/disablepromo (.+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    if (!isAdmin(userId)) {
+        bot.sendMessage(chatId, '❌ У вас нет прав для этой команды.');
+        return;
+    }
+
+    const promoId = parseInt(match[1]);
+    if (isNaN(promoId)) {
+        bot.sendMessage(chatId, '❌ Укажите ID промокода. Используйте: /disablepromo ID');
+        return;
+    }
+
+    try {
+        await promoDB.deactivatePromo(promoId);
+        bot.sendMessage(chatId, `✅ Промокод #${promoId} деактивирован.`);
+    } catch (error) {
+        console.error('Ошибка деактивации промокода:', error);
+        bot.sendMessage(chatId, '❌ Ошибка деактивации промокода.');
+    }
+});
+
+// Инструкция по промокодам
+bot.onText(/\/promohelp/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    if (!isAdmin(userId)) {
+        bot.sendMessage(chatId, '❌ У вас нет прав для этой команды.');
+        return;
+    }
+
+    const message = 
+        `📖 <b>Инструкция по промокодам</b>\n\n` +
+        `<b>Создание:</b>\n` +
+        `<code>/createpromo КОД СУММА ЛИМИТ</code>\n\n` +
+        `📋 <b>Параметры:</b>\n` +
+        `• КОД — любой текст (латиница, цифры)\n` +
+        `• СУММА — количество коинов за промокод\n` +
+        `• ЛИМИТ — -1 (безлимитный) или число (например, 100)\n\n` +
+        `<b>Примеры:</b>\n` +
+        `<code>/createpromo HAPPY2025 50 100</code> — 50 коинов для первых 100 человек\n` +
+        `<code>/createpromo BONUS25 25 -1</code> — 25 коинов для всех\n\n` +
+        `<b>Другие команды:</b>\n` +
+        `<code>/promolist</code> — список всех промокодов\n` +
+        `<code>/disablepromo ID</code> — деактивировать промокод по ID\n\n` +
+        `<b>Как активируют пользователи:</b>\n` +
+        `<code>/promo КОД</code> — например: /promo HAPPY2025`;
+
+    bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+});
+
 start().catch(console.error);
