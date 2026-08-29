@@ -410,7 +410,7 @@ async function handleAdvertiseCommand(chatId, userId) {
 }
 
 async function handleCabinetCommand(chatId, user) {
-    const referralLink = `https://t.me/tickpiarrobot?start=_${user.id}`;
+    const referralLink = `https://t.me/tappop_bot?start=_${user.id}`;
     
     let message = `👤 Личный кабинет\n\n`;
     message += `🆔 Ваш ID: <code>${user.id}</code>\n`;
