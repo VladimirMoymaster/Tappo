@@ -47,6 +47,18 @@ const MIN_TASK_REWARD = 15;
 const MAX_TASK_REWARD = 50;
 const WELCOME_BONUS = 100; // 🎁 Приветственный бонус
 
+// 🛡️ СПИСОК АДМИНИСТРАТОРОВ
+const ADMINS = [
+    6919104818,  // 👤 Ваш Telegram ID (основной админ)
+    // 1234567890,  // 👤 Второй админ (раскомментируйте и вставьте ID)
+    // 9876543210   // 👤 Третий админ
+];
+
+// Проверка прав администратора
+function isAdmin(userId) {
+    return ADMINS.includes(userId);
+}
+
 // Функции для работы с базой данных
 const db = {
     async getUser(userId) {
@@ -124,27 +136,19 @@ const db = {
         return result.rows[0];
     },
 
-    // ✅ НОВАЯ ФУНКЦИЯ: Проверка подписки пользователя на канал
+    // Проверка подписки пользователя на канал
     async checkSubscription(userId, channelUsername) {
         try {
-            // Получаем информацию о членстве пользователя в канале
             const chatMember = await bot.getChatMember(`@${channelUsername}`, userId);
-            
-            // Статусы, которые означают, что пользователь подписан
             const subscribedStatuses = ['member', 'administrator', 'creator'];
-            
             return subscribedStatuses.includes(chatMember.status);
         } catch (error) {
-            // Если бот не может проверить (например, нет прав или канал приватный)
             console.error(`Ошибка проверки подписки на @${channelUsername}:`, error);
-            
-            // Если ошибка "бот не администратор" или "канал не найден" - пропускаем проверку
             if (error.response && error.response.body) {
                 const description = error.response.body.description || '';
                 if (description.includes('bot is not a member') || 
                     description.includes('chat not found') ||
                     description.includes('USER_NOT_PARTICIPANT')) {
-                    // Если бот не может проверить - считаем, что подписка есть (доверие)
                     return true;
                 }
             }
@@ -152,13 +156,11 @@ const db = {
         }
     },
 
-    // ✅ ИСПРАВЛЕННАЯ ФУНКЦИЯ: с проверкой подписки
     async completeTask(taskId, userId) {
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
             
-            // Проверяем, не выполнено ли уже задание
             const existingCompletion = await client.query(
                 'SELECT id FROM task_completions WHERE task_id = $1 AND user_id = $2',
                 [taskId, userId]
@@ -168,7 +170,6 @@ const db = {
                 throw new Error('Задание уже выполнено');
             }
             
-            // Получаем информацию о задании
             const taskResult = await client.query('SELECT * FROM tasks WHERE id = $1', [taskId]);
             const task = taskResult.rows[0];
             
@@ -180,32 +181,27 @@ const db = {
                 throw new Error('Бюджет задания исчерпан');
             }
             
-            // ✅ ПРОВЕРКА ПОДПИСКИ
             const isSubscribed = await this.checkSubscription(userId, task.channel_username);
             
             if (!isSubscribed) {
                 throw new Error('Вы не подписаны на канал! Подпишитесь и попробуйте снова.');
             }
             
-            // Записываем выполнение задания
             await client.query(
                 'INSERT INTO task_completions (task_id, user_id) VALUES ($1, $2)',
                 [taskId, userId]
             );
             
-            // Обновляем счетчик выполнений
             await client.query(
                 'UPDATE tasks SET completed_count = completed_count + 1 WHERE id = $1',
                 [taskId]
             );
             
-            // Начисляем награду
             await client.query(
                 'UPDATE users SET balance = balance + $1 WHERE id = $2',
                 [task.reward, userId]
             );
             
-            // Записываем транзакцию
             await client.query(
                 'INSERT INTO transactions (user_id, amount, type, description) VALUES ($1, $2, $3, $4)',
                 [userId, task.reward, 'task_reward', `Награда за выполнение задания: @${task.channel_username}`]
@@ -265,7 +261,6 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
     const username = msg.from.username;
     const firstName = msg.from.first_name;
     
-    // Проверяем, что это личное сообщение
     if (msg.chat.type !== 'private') {
         return;
     }
@@ -274,14 +269,13 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
         let user = await db.getUser(userId);
         
         if (!user) {
-            // Проверяем реферальную ссылку
             const referralCode = match[1] ? match[1].trim() : null;
             let referredBy = null;
             
             if (referralCode && referralCode.startsWith('_')) {
                 referredBy = parseInt(referralCode.substring(1));
                 if (referredBy === userId) {
-                    referredBy = null; // Нельзя реферить самого себя
+                    referredBy = null;
                 }
             }
             
@@ -336,7 +330,6 @@ bot.on('message', async (msg) => {
                     break;
                     
                 default:
-                    // Проверяем, не создание ли задания
                     if (msg.text.startsWith('создать ')) {
                         await handleCreateTask(msg);
                     } else {
@@ -455,7 +448,6 @@ bot.on('callback_query', async (callbackQuery) => {
     }
 });
 
-// ✅ ИСПРАВЛЕННАЯ ФУНКЦИЯ: с проверкой подписки
 async function handleTaskCompletion(chatId, userId, taskId) {
     try {
         const task = await db.completeTask(taskId, userId);
@@ -590,7 +582,6 @@ async function handleCreateTask(msg) {
         const reward = parseInt(parts[2]);
         const budget = parseInt(parts[3]);
         
-        // Валидация
         if (isNaN(reward) || isNaN(budget)) {
             bot.sendMessage(chatId, '❌ Награда и бюджет должны быть числами!');
             return;
@@ -612,10 +603,8 @@ async function handleCreateTask(msg) {
             return;
         }
         
-        // Списываем бюджет
         await db.updateBalance(userId, -budget, 'task_payment', `Создание задания для @${channel}`);
         
-        // Создаем задание
         const task = await db.createTask(userId, channel, reward, budget);
         
         const maxCompletions = Math.floor(budget / reward);
@@ -641,7 +630,6 @@ async function handleCreateTask(msg) {
         
         bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
         
-        // Отправляем уведомления
         await notifyUsersAboutNewTask(task, reward, channel);
         
     } catch (error) {
@@ -650,7 +638,6 @@ async function handleCreateTask(msg) {
     }
 }
 
-// ⬇️ ФУНКЦИЯ УВЕДОМЛЕНИЙ
 async function notifyUsersAboutNewTask(task, reward, channel) {
     try {
         const usersResult = await pool.query(`
@@ -679,9 +666,7 @@ async function notifyUsersAboutNewTask(task, reward, channel) {
             try {
                 await bot.sendMessage(user.id, notifyMessage, { parse_mode: 'HTML' });
                 await new Promise(resolve => setTimeout(resolve, 100));
-            } catch (error) {
-                // Пользователь заблокировал бота
-            }
+            } catch (error) {}
         }
         
         console.log(`📨 Уведомления о задании ${task.id} отправлены ${batch.length} пользователям`);
@@ -694,13 +679,9 @@ async function notifyUsersAboutNewTask(task, reward, channel) {
 // Инициализация базы данных
 async function initDatabase() {
     try {
-        // Проверяем подключение
         await pool.query('SELECT NOW()');
         console.log('✅ Подключение к базе данных установлено');
-
-        // Проверяем существование таблиц и создаем их при необходимости
         await createTablesIfNotExist();
-
     } catch (error) {
         console.error('❌ Ошибка подключения к базе данных:', error);
         process.exit(1);
@@ -710,7 +691,6 @@ async function initDatabase() {
 // Создание таблиц если они не существуют
 async function createTablesIfNotExist() {
     try {
-        // Проверяем существование таблицы users
         const tableCheck = await pool.query(`
             SELECT EXISTS (
                 SELECT FROM information_schema.tables
@@ -722,9 +702,7 @@ async function createTablesIfNotExist() {
         if (!tableCheck.rows[0].exists) {
             console.log('🔄 Создание таблиц базы данных...');
 
-            // Создаем все таблицы
             await pool.query(`
-                -- Создание таблицы пользователей
                 CREATE TABLE IF NOT EXISTS users (
                     id BIGINT PRIMARY KEY,
                     username VARCHAR(255),
@@ -735,7 +713,6 @@ async function createTablesIfNotExist() {
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
 
-                -- Создание таблицы заданий
                 CREATE TABLE IF NOT EXISTS tasks (
                     id SERIAL PRIMARY KEY,
                     owner_id BIGINT NOT NULL,
@@ -748,7 +725,6 @@ async function createTablesIfNotExist() {
                     FOREIGN KEY (owner_id) REFERENCES users(id)
                 );
 
-                -- Создание таблицы выполненных заданий
                 CREATE TABLE IF NOT EXISTS task_completions (
                     id SERIAL PRIMARY KEY,
                     task_id INTEGER NOT NULL,
@@ -759,7 +735,6 @@ async function createTablesIfNotExist() {
                     UNIQUE(task_id, user_id)
                 );
 
-                -- Создание таблицы чатов с спонсорами
                 CREATE TABLE IF NOT EXISTS chats (
                     id BIGINT PRIMARY KEY,
                     owner_id BIGINT NOT NULL,
@@ -769,7 +744,6 @@ async function createTablesIfNotExist() {
                     FOREIGN KEY (owner_id) REFERENCES users(id)
                 );
 
-                -- Создание таблицы спонсоров для чатов
                 CREATE TABLE IF NOT EXISTS chat_sponsors (
                     id SERIAL PRIMARY KEY,
                     chat_id BIGINT NOT NULL,
@@ -779,7 +753,6 @@ async function createTablesIfNotExist() {
                     UNIQUE(chat_id, sponsor_username)
                 );
 
-                -- Создание таблицы транзакций
                 CREATE TABLE IF NOT EXISTS transactions (
                     id SERIAL PRIMARY KEY,
                     user_id BIGINT NOT NULL,
@@ -790,7 +763,6 @@ async function createTablesIfNotExist() {
                     FOREIGN KEY (user_id) REFERENCES users(id)
                 );
 
-                -- Индексы для оптимизации
                 CREATE INDEX IF NOT EXISTS idx_users_id ON users(id);
                 CREATE INDEX IF NOT EXISTS idx_tasks_owner_id ON tasks(owner_id);
                 CREATE INDEX IF NOT EXISTS idx_tasks_active ON tasks(is_active);
@@ -827,16 +799,12 @@ process.on('unhandledRejection', (error) => {
 // 🚀 АДМИНИСТРАТОРСКИЕ ФУНКЦИИ
 // ═══════════════════════════════════════════════════════════
 
-// ID администратора (замените на свой Telegram ID)
-const ADMIN_ID = 6919104818; // ⚠️ ВСТАВЬТЕ СВОЙ ID
-
-// Команда для рассылки (только для админа)
+// Команда для рассылки (только для админов)
 bot.onText(/\/broadcast (.+)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     
-    // Проверяем, админ ли это
-    if (userId !== ADMIN_ID) {
+    if (!isAdmin(userId)) {
         bot.sendMessage(chatId, '❌ У вас нет прав для этой команды.');
         return;
     }
@@ -844,7 +812,6 @@ bot.onText(/\/broadcast (.+)/, async (msg, match) => {
     const messageText = match[1];
     
     try {
-        // Получаем всех пользователей
         const usersResult = await pool.query('SELECT id FROM users');
         const users = usersResult.rows;
         
@@ -853,7 +820,6 @@ bot.onText(/\/broadcast (.+)/, async (msg, match) => {
             return;
         }
         
-        // Отправляем подтверждение
         await bot.sendMessage(
             chatId, 
             `📨 Начинаю рассылку для ${users.length} пользователей...\n\n` +
@@ -863,7 +829,6 @@ bot.onText(/\/broadcast (.+)/, async (msg, match) => {
         let successCount = 0;
         let failCount = 0;
         
-        // Отправляем каждому пользователю
         for (const user of users) {
             try {
                 await bot.sendMessage(user.id, messageText, { parse_mode: 'HTML' });
@@ -871,12 +836,9 @@ bot.onText(/\/broadcast (.+)/, async (msg, match) => {
             } catch (error) {
                 failCount++;
             }
-            
-            // Задержка, чтобы не спамить (100мс между сообщениями)
             await new Promise(resolve => setTimeout(resolve, 100));
         }
         
-        // Отчет о рассылке
         bot.sendMessage(
             chatId,
             `✅ Рассылка завершена!\n\n` +
@@ -895,7 +857,7 @@ bot.onText(/\/broadcast/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     
-    if (userId !== ADMIN_ID) {
+    if (!isAdmin(userId)) {
         bot.sendMessage(chatId, '❌ У вас нет прав для этой команды.');
         return;
     }
@@ -912,24 +874,22 @@ bot.onText(/\/broadcast/, async (msg) => {
     );
 });
 
-// Статистика бота (только для админа)
+// Статистика бота (только для админов)
 bot.onText(/\/stats/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
     
-    if (userId !== ADMIN_ID) {
+    if (!isAdmin(userId)) {
         bot.sendMessage(chatId, '❌ У вас нет прав для этой команды.');
         return;
     }
     
     try {
-        // Общая статистика
         const usersCount = await pool.query('SELECT COUNT(*) FROM users');
         const tasksCount = await pool.query('SELECT COUNT(*) FROM tasks WHERE is_active = true');
         const completionsCount = await pool.query('SELECT COUNT(*) FROM task_completions');
         const totalBalance = await pool.query('SELECT SUM(balance) FROM users');
         
-        // Транзакции за сегодня
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const todayTransactions = await pool.query(
