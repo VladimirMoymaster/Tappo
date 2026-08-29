@@ -47,7 +47,7 @@ class PaymentHandler {
                 '', // provider_token пустой для Stars
                 'XTR', // валюта
                 [
-                    { label: `${coins} Tick коинов`, amount: stars * 1000 } // ✅ 1⭐ = 1000
+                    { label: `${coins} Tick коинов`, amount: stars } // ✅ 1⭐ = 1000
                 ]
             );
 
