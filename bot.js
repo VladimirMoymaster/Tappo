@@ -485,7 +485,7 @@ async function handleTaskCompletion(chatId, userId, taskId) {
 
 async function handleReferralSystem(chatId, userId) {
     const user = await db.getUser(userId);
-    const referralLink = `https://t.me/tickpiarrobot?start=_${user.id}`;
+    const referralLink = `https://t.me/tappop_bot?start=_${user.id}`;
     
     let message = `👥 Реферальная система\n\n`;
     message += `🔗 <b>Ваша реферальная ссылка:</b>\n`;
