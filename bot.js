@@ -45,7 +45,7 @@ app.listen(PORT, () => {
 const REFERRAL_BONUS = 50;
 const MIN_TASK_REWARD = 15;
 const MAX_TASK_REWARD = 50;
-const WELCOME_BONUS = 100; // 🎁 Приветственный бонус
+const WELCOME_BONUS = 20; // 🎁 Приветственный бонус
 
 // Функции для работы с базой данных
 const db = {
@@ -124,6 +124,35 @@ const db = {
         return result.rows[0];
     },
 
+    // ✅ НОВАЯ ФУНКЦИЯ: Проверка подписки пользователя на канал
+    async checkSubscription(userId, channelUsername) {
+        try {
+            // Получаем информацию о членстве пользователя в канале
+            const chatMember = await bot.getChatMember(`@${channelUsername}`, userId);
+            
+            // Статусы, которые означают, что пользователь подписан
+            const subscribedStatuses = ['member', 'administrator', 'creator'];
+            
+            return subscribedStatuses.includes(chatMember.status);
+        } catch (error) {
+            // Если бот не может проверить (например, нет прав или канал приватный)
+            console.error(`Ошибка проверки подписки на @${channelUsername}:`, error);
+            
+            // Если ошибка "бот не администратор" или "канал не найден" - пропускаем проверку
+            if (error.response && error.response.body) {
+                const description = error.response.body.description || '';
+                if (description.includes('bot is not a member') || 
+                    description.includes('chat not found') ||
+                    description.includes('USER_NOT_PARTICIPANT')) {
+                    // Если бот не может проверить - считаем, что подписка есть (доверие)
+                    return true;
+                }
+            }
+            return false;
+        }
+    },
+
+    // ✅ ИСПРАВЛЕННАЯ ФУНКЦИЯ: с проверкой подписки
     async completeTask(taskId, userId) {
         const client = await pool.connect();
         try {
@@ -149,6 +178,13 @@ const db = {
             
             if (task.total_budget < (task.completed_count + 1) * task.reward) {
                 throw new Error('Бюджет задания исчерпан');
+            }
+            
+            // ✅ ПРОВЕРКА ПОДПИСКИ
+            const isSubscribed = await this.checkSubscription(userId, task.channel_username);
+            
+            if (!isSubscribed) {
+                throw new Error('Вы не подписаны на канал! Подпишитесь и попробуйте снова.');
             }
             
             // Записываем выполнение задания
@@ -418,6 +454,7 @@ bot.on('callback_query', async (callbackQuery) => {
     }
 });
 
+// ✅ ИСПРАВЛЕННАЯ ФУНКЦИЯ: с проверкой подписки
 async function handleTaskCompletion(chatId, userId, taskId) {
     try {
         const task = await db.completeTask(taskId, userId);
@@ -434,6 +471,10 @@ async function handleTaskCompletion(chatId, userId, taskId) {
             errorMessage = '⚠️ Вы уже выполнили это задание!';
         } else if (error.message === 'Бюджет задания исчерпан') {
             errorMessage = '😞 Бюджет этого задания уже исчерпан!';
+        } else if (error.message === 'Вы не подписаны на канал! Подпишитесь и попробуйте снова.') {
+            errorMessage = '❌ Вы не подписаны на канал!\n\n' +
+                          `📺 Подпишитесь на @${error.taskChannel || 'канал'}\n` +
+                          `🔄 После подписки нажмите "Выполнить задание" снова.`;
         }
         
         bot.sendMessage(chatId, errorMessage);
@@ -582,7 +623,8 @@ async function handleCreateTask(msg) {
         message += `💎 Награда: ${reward} коинов за подписку\n`;
         message += `💰 Бюджет: ${budget} коинов\n`;
         message += `👥 Максимум выполнений: ${maxCompletions}\n\n`;
-        message += `🚀 Задание добавлено в общий список и будет показано пользователям в разделе "Заработать".`;
+        message += `🚀 Задание добавлено в общий список и будет показано пользователям в разделе "Заработать".\n\n`;
+        message += `⚡️ Важно: Добавьте бота @tickpiarrobot в администраторы вашего канала, чтобы проверка подписок работала!`;
         
         bot.sendMessage(chatId, message);
         
