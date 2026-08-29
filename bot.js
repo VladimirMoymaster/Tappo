@@ -244,7 +244,7 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
             
             user = await db.createUser(userId, username, firstName, referredBy);
             
-            let welcomeMessage = `🎉 Добро пожаловать в Tick Bot!\n\n`;
+            let welcomeMessage = `🎉 Добро пожаловать в Tappo⚡️!\n\n`;
             welcomeMessage += `💰 Зарабатывайте Tick коины, выполняя задания по подписке на каналы\n`;
             welcomeMessage += `📢 Создавайте свои задания для продвижения каналов\n`;
             welcomeMessage += `👥 Приглашайте друзей и получайте бонусы\n\n`;
