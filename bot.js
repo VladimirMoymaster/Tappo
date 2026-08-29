@@ -403,8 +403,7 @@ async function handleAdvertiseCommand(chatId, userId) {
     message += `• Награда: от ${MIN_TASK_REWARD} до ${MAX_TASK_REWARD} коинов за подписку\n`;
     message += `• Минимальный бюджет: ${MIN_TASK_REWARD} коинов\n`;
     message += `• Бюджет полностью списывается с вашего баланса\n`;
-    message += `• Максимум выполнений = бюджет ÷ награда`;
-    
+    message += `• Максимум выполнений = бюджет ÷ награда\n`;
     message += `•❗️ВНИМАНИЕ❗️-Добавьте бота @tappop_bot в администарторы своего канала`;
     
     bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
