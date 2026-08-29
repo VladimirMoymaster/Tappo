@@ -647,6 +647,95 @@ async function handleCreateTask(msg) {
     }
 }
 
+// После успешного создания задания, отправляем уведомления
+async function notifyUsersAboutNewTask(task, reward, channel) {
+    try {
+        // Получаем активных пользователей (кто не создавал это задание)
+        const usersResult = await pool.query(`
+            SELECT id FROM users 
+            WHERE id != $1
+            AND NOT EXISTS (
+                SELECT 1 FROM task_completions 
+                WHERE task_completions.task_id = $2 
+                AND task_completions.user_id = users.id
+            )
+        `, [task.owner_id, task.id]);
+        
+        const users = usersResult.rows;
+        
+        if (users.length === 0) return;
+        
+        // Отправляем уведомление только первым 100 пользователям (чтобы не спамить)
+        const batch = users.slice(0, 100);
+        
+        const notifyMessage = 
+            `📢 <b>Новое задание!</b>\n\n` +
+            `📺 Подпишись на @${channel}\n` +
+            `💎 Награда: <b>${reward} коинов</b>\n\n` +
+            `👉 Нажми "💰 Заработать" в боте, чтобы выполнить задание!`;
+        
+        for (const user of batch) {
+            try {
+                await bot.sendMessage(user.id, notifyMessage, { parse_mode: 'HTML' });
+                await new Promise(resolve => setTimeout(resolve, 100));
+            } catch (error) {
+                // Пользователь заблокировал бота
+            }
+        }
+        
+        console.log(`📨 Уведомления о задании ${task.id} отправлены ${batch.length} пользователям`);
+        
+    } catch (error) {
+        console.error('Ошибка отправки уведомлений:', error);
+    }
+}
+
+// В конце функции handleCreateTask добавьте вызов:
+await notifyUsersAboutNewTask(task, reward, channel);
+
+// Статистика бота (только для админа)
+bot.onText(/\/stats/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    
+    if (userId !== ADMIN_ID) {
+        bot.sendMessage(chatId, '❌ У вас нет прав для этой команды.');
+        return;
+    }
+    
+    try {
+        // Общая статистика
+        const usersCount = await pool.query('SELECT COUNT(*) FROM users');
+        const tasksCount = await pool.query('SELECT COUNT(*) FROM tasks WHERE is_active = true');
+        const completionsCount = await pool.query('SELECT COUNT(*) FROM task_completions');
+        const totalBalance = await pool.query('SELECT SUM(balance) FROM users');
+        
+        // Транзакции за сегодня
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayTransactions = await pool.query(
+            'SELECT COUNT(*), SUM(amount) FROM transactions WHERE created_at >= $1 AND amount > 0',
+            [today]
+        );
+        
+        const message = 
+            `📊 <b>Статистика бота</b>\n\n` +
+            `👥 <b>Пользователи:</b> ${usersCount.rows[0].count}\n` +
+            `📢 <b>Активных заданий:</b> ${tasksCount.rows[0].count}\n` +
+            `✅ <b>Выполнено заданий:</b> ${completionsCount.rows[0].count}\n` +
+            `💰 <b>Общий баланс:</b> ${totalBalance.rows[0].sum || 0} коинов\n` +
+            `📈 <b>Пополнений сегодня:</b> ${todayTransactions.rows[0].count || 0}\n` +
+            `💳 <b>На сумму:</b> ${todayTransactions.rows[0].sum || 0} коинов\n\n` +
+            `🕐 ${new Date().toLocaleString('ru-RU')}`;
+        
+        bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+        
+    } catch (error) {
+        console.error('Ошибка статистики:', error);
+        bot.sendMessage(chatId, '❌ Ошибка получения статистики.');
+    }
+});
+
 // Инициализация базы данных
 async function initDatabase() {
     try {
@@ -785,5 +874,94 @@ async function start() {
     console.log('🚀 Tick Bot запущен и готов к работе!');
     console.log(`🌐 Бот доступен по адресу: @tappop_bot`);
 }
+
+// ═══════════════════════════════════════════════════════════
+// 🚀 АДМИНИСТРАТОРСКИЕ ФУНКЦИИ
+// ═══════════════════════════════════════════════════════════
+
+// ID администратора (замените на свой Telegram ID)
+const ADMIN_ID = 6919104818; // ⚠️ ВСТАВЬТЕ СВОЙ ID
+
+// Команда для рассылки (только для админа)
+bot.onText(/\/broadcast (.+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    
+    // Проверяем, админ ли это
+    if (userId !== ADMIN_ID) {
+        bot.sendMessage(chatId, '❌ У вас нет прав для этой команды.');
+        return;
+    }
+    
+    const messageText = match[1];
+    
+    try {
+        // Получаем всех пользователей
+        const usersResult = await pool.query('SELECT id FROM users');
+        const users = usersResult.rows;
+        
+        if (users.length === 0) {
+            bot.sendMessage(chatId, '❌ Нет пользователей для рассылки.');
+            return;
+        }
+        
+        // Отправляем подтверждение
+        const confirmMsg = await bot.sendMessage(
+            chatId, 
+            `📨 Начинаю рассылку для ${users.length} пользователей...\n\n` +
+            `Сообщение:\n${messageText}`
+        );
+        
+        let successCount = 0;
+        let failCount = 0;
+        
+        // Отправляем каждому пользователю
+        for (const user of users) {
+            try {
+                await bot.sendMessage(user.id, messageText, { parse_mode: 'HTML' });
+                successCount++;
+            } catch (error) {
+                failCount++;
+            }
+            
+            // Задержка, чтобы не спамить (100мс между сообщениями)
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        // Отчет о рассылке
+        bot.sendMessage(
+            chatId,
+            `✅ Рассылка завершена!\n\n` +
+            `📤 Отправлено: ${successCount}\n` +
+            `❌ Не доставлено: ${failCount}`
+        );
+        
+    } catch (error) {
+        console.error('Ошибка рассылки:', error);
+        bot.sendMessage(chatId, '❌ Ошибка при выполнении рассылки.');
+    }
+});
+
+// Команда для подтверждения рассылки (интерактивная)
+bot.onText(/\/broadcast/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    
+    if (userId !== ADMIN_ID) {
+        bot.sendMessage(chatId, '❌ У вас нет прав для этой команды.');
+        return;
+    }
+    
+    bot.sendMessage(
+        chatId,
+        `📨 <b>Рассылка сообщения</b>\n\n` +
+        `Отправьте сообщение для рассылки командой:\n` +
+        `<code>/broadcast текст сообщения</code>\n\n` +
+        `Пример:\n` +
+        `<code>/broadcast Привет! У нас новый розыгрыш! 🎁</code>\n\n` +
+        `⚠️ Сообщение будет отправлено ВСЕМ пользователям бота.`,
+        { parse_mode: 'HTML' }
+    );
+});
 
 start().catch(console.error);
