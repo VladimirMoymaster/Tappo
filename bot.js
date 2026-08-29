@@ -626,7 +626,7 @@ async function handleCreateTask(msg) {
         message += `🚀 Задание добавлено в общий список и будет показано пользователям в разделе "Заработать".\n\n`;
         message += `━━━━━━━━━━━━━━━━━━━━━━\n`;
         message += `⚠️ <b>ВАЖНО!</b> Чтобы проверка подписок работала:\n\n`;
-        message += `1️⃣ Добавьте бота <b>@tickpiarrobot</b> в администраторы вашего канала\n`;
+        message += `1️⃣ Добавьте бота <b>@tappop_bot</b> в администраторы вашего канала\n`;
         message += `2️⃣ Дайте ему права (достаточно минимальных)\n`;
         message += `3️⃣ После этого пользователи смогут выполнять задания\n\n`;
         message += `❌ <b>Если бот не будет админом</b> — проверка подписок не сработает, и пользователи смогут получать награду без подписки!\n`;
@@ -635,7 +635,7 @@ async function handleCreateTask(msg) {
         message += `• Зайдите в настройки канала\n`;
         message += `• Выберите "Администраторы"\n`;
         message += `• Нажмите "Добавить администратора"\n`;
-        message += `• Найдите @tickpiarrobot\n`;
+        message += `• Найдите @tappop_bot\n`;
         message += `• Дайте ему права (можно минимальные)`;
         
         bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
@@ -782,7 +782,7 @@ process.on('unhandledRejection', (error) => {
 async function start() {
     await initDatabase();
     console.log('🚀 Tick Bot запущен и готов к работе!');
-    console.log(`🌐 Бот доступен по адресу: @tickpiarrobot`);
+    console.log(`🌐 Бот доступен по адресу: @tappop_bot`);
 }
 
 start().catch(console.error);
