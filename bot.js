@@ -829,6 +829,7 @@ process.on('unhandledRejection', (error) => {
 
 // ID администратора (замените на свой Telegram ID)
 const ADMIN_ID = 6919104818; // ⚠️ ВСТАВЬТЕ СВОЙ ID
+const ADMIN_ID = 1669690875;
 
 // Команда для рассылки (только для админа)
 bot.onText(/\/broadcast (.+)/, async (msg, match) => {
