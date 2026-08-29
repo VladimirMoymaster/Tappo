@@ -45,7 +45,7 @@ app.listen(PORT, () => {
 const REFERRAL_BONUS = 50;
 const MIN_TASK_REWARD = 15;
 const MAX_TASK_REWARD = 50;
-const WELCOME_BONUS = 20; // 🎁 Приветственный бонус
+const WELCOME_BONUS = 100; // 🎁 Приветственный бонус
 
 // Функции для работы с базой данных
 const db = {
