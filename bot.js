@@ -641,16 +641,18 @@ async function handleCreateTask(msg) {
         
         bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
         
+        // Отправляем уведомления
+        await notifyUsersAboutNewTask(task, reward, channel);
+        
     } catch (error) {
         console.error('Error creating task:', error);
         bot.sendMessage(chatId, '❌ Произошла ошибка при создании задания. Попробуйте позже.');
     }
 }
 
-// После успешного создания задания, отправляем уведомления
+// ⬇️ ФУНКЦИЯ УВЕДОМЛЕНИЙ
 async function notifyUsersAboutNewTask(task, reward, channel) {
     try {
-        // Получаем активных пользователей (кто не создавал это задание)
         const usersResult = await pool.query(`
             SELECT id FROM users 
             WHERE id != $1
@@ -665,7 +667,6 @@ async function notifyUsersAboutNewTask(task, reward, channel) {
         
         if (users.length === 0) return;
         
-        // Отправляем уведомление только первым 100 пользователям (чтобы не спамить)
         const batch = users.slice(0, 100);
         
         const notifyMessage = 
@@ -689,52 +690,6 @@ async function notifyUsersAboutNewTask(task, reward, channel) {
         console.error('Ошибка отправки уведомлений:', error);
     }
 }
-
-// В конце функции handleCreateTask добавьте вызов:
-await notifyUsersAboutNewTask(task, reward, channel);
-
-// Статистика бота (только для админа)
-bot.onText(/\/stats/, async (msg) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
-    
-    if (userId !== ADMIN_ID) {
-        bot.sendMessage(chatId, '❌ У вас нет прав для этой команды.');
-        return;
-    }
-    
-    try {
-        // Общая статистика
-        const usersCount = await pool.query('SELECT COUNT(*) FROM users');
-        const tasksCount = await pool.query('SELECT COUNT(*) FROM tasks WHERE is_active = true');
-        const completionsCount = await pool.query('SELECT COUNT(*) FROM task_completions');
-        const totalBalance = await pool.query('SELECT SUM(balance) FROM users');
-        
-        // Транзакции за сегодня
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const todayTransactions = await pool.query(
-            'SELECT COUNT(*), SUM(amount) FROM transactions WHERE created_at >= $1 AND amount > 0',
-            [today]
-        );
-        
-        const message = 
-            `📊 <b>Статистика бота</b>\n\n` +
-            `👥 <b>Пользователи:</b> ${usersCount.rows[0].count}\n` +
-            `📢 <b>Активных заданий:</b> ${tasksCount.rows[0].count}\n` +
-            `✅ <b>Выполнено заданий:</b> ${completionsCount.rows[0].count}\n` +
-            `💰 <b>Общий баланс:</b> ${totalBalance.rows[0].sum || 0} коинов\n` +
-            `📈 <b>Пополнений сегодня:</b> ${todayTransactions.rows[0].count || 0}\n` +
-            `💳 <b>На сумму:</b> ${todayTransactions.rows[0].sum || 0} коинов\n\n` +
-            `🕐 ${new Date().toLocaleString('ru-RU')}`;
-        
-        bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
-        
-    } catch (error) {
-        console.error('Ошибка статистики:', error);
-        bot.sendMessage(chatId, '❌ Ошибка получения статистики.');
-    }
-});
 
 // Инициализация базы данных
 async function initDatabase() {
@@ -868,13 +823,6 @@ process.on('unhandledRejection', (error) => {
     console.error('❌ Unhandled Rejection:', error);
 });
 
-// Запуск
-async function start() {
-    await initDatabase();
-    console.log('🚀 Tick Bot запущен и готов к работе!');
-    console.log(`🌐 Бот доступен по адресу: @tappop_bot`);
-}
-
 // ═══════════════════════════════════════════════════════════
 // 🚀 АДМИНИСТРАТОРСКИЕ ФУНКЦИИ
 // ═══════════════════════════════════════════════════════════
@@ -906,7 +854,7 @@ bot.onText(/\/broadcast (.+)/, async (msg, match) => {
         }
         
         // Отправляем подтверждение
-        const confirmMsg = await bot.sendMessage(
+        await bot.sendMessage(
             chatId, 
             `📨 Начинаю рассылку для ${users.length} пользователей...\n\n` +
             `Сообщение:\n${messageText}`
@@ -963,5 +911,55 @@ bot.onText(/\/broadcast/, async (msg) => {
         { parse_mode: 'HTML' }
     );
 });
+
+// Статистика бота (только для админа)
+bot.onText(/\/stats/, async (msg) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+    
+    if (userId !== ADMIN_ID) {
+        bot.sendMessage(chatId, '❌ У вас нет прав для этой команды.');
+        return;
+    }
+    
+    try {
+        // Общая статистика
+        const usersCount = await pool.query('SELECT COUNT(*) FROM users');
+        const tasksCount = await pool.query('SELECT COUNT(*) FROM tasks WHERE is_active = true');
+        const completionsCount = await pool.query('SELECT COUNT(*) FROM task_completions');
+        const totalBalance = await pool.query('SELECT SUM(balance) FROM users');
+        
+        // Транзакции за сегодня
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayTransactions = await pool.query(
+            'SELECT COUNT(*), SUM(amount) FROM transactions WHERE created_at >= $1 AND amount > 0',
+            [today]
+        );
+        
+        const message = 
+            `📊 <b>Статистика бота</b>\n\n` +
+            `👥 <b>Пользователи:</b> ${usersCount.rows[0].count}\n` +
+            `📢 <b>Активных заданий:</b> ${tasksCount.rows[0].count}\n` +
+            `✅ <b>Выполнено заданий:</b> ${completionsCount.rows[0].count}\n` +
+            `💰 <b>Общий баланс:</b> ${totalBalance.rows[0].sum || 0} коинов\n` +
+            `📈 <b>Пополнений сегодня:</b> ${todayTransactions.rows[0].count || 0}\n` +
+            `💳 <b>На сумму:</b> ${todayTransactions.rows[0].sum || 0} коинов\n\n` +
+            `🕐 ${new Date().toLocaleString('ru-RU')}`;
+        
+        bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+        
+    } catch (error) {
+        console.error('Ошибка статистики:', error);
+        bot.sendMessage(chatId, '❌ Ошибка получения статистики.');
+    }
+});
+
+// Запуск
+async function start() {
+    await initDatabase();
+    console.log('🚀 Tick Bot запущен и готов к работе!');
+    console.log(`🌐 Бот доступен по адресу: @tappop_bot`);
+}
 
 start().catch(console.error);
