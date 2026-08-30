@@ -582,6 +582,7 @@ async function handleCreateTask(msg) {
         const reward = parseInt(parts[2]);
         const budget = parseInt(parts[3]);
         
+        // Валидация
         if (isNaN(reward) || isNaN(budget)) {
             bot.sendMessage(chatId, '❌ Награда и бюджет должны быть числами!');
             return;
@@ -597,14 +598,62 @@ async function handleCreateTask(msg) {
             return;
         }
         
+        // ✅ НОВАЯ ПРОВЕРКА: есть ли бот в канале
+        try {
+            const botMember = await bot.getChatMember(`@${channel}`, bot.botInfo.id);
+            const isBotAdmin = ['administrator', 'creator'].includes(botMember.status);
+            
+            if (!isBotAdmin) {
+                bot.sendMessage(
+                    chatId, 
+                    `❌ <b>Бот не является администратором канала @${channel}!</b>\n\n` +
+                    `Добавьте бота <b>@tappop_bot</b> в администраторы вашего канала, чтобы создавать задания.\n\n` +
+                    `📋 <b>Как добавить:</b>\n` +
+                    `1️⃣ Зайдите в настройки канала\n` +
+                    `2️⃣ Выберите "Администраторы"\n` +
+                    `3️⃣ Нажмите "Добавить администратора"\n` +
+                    `4️⃣ Найдите @tappop_bot\n` +
+                    `5️⃣ Дайте ему права (можно минимальные)`,
+                    { parse_mode: 'HTML' }
+                );
+                return;
+            }
+        } catch (error) {
+            // Бот не может проверить (канал приватный или не существует)
+            console.error(`Ошибка проверки бота в канале @${channel}:`, error);
+            
+            let errorMessage = `❌ <b>Не удалось проверить канал @${channel}!</b>\n\n`;
+            
+            if (error.response && error.response.body) {
+                const description = error.response.body.description || '';
+                if (description.includes('chat not found')) {
+                    errorMessage += `Канал @${channel} не найден. Проверьте правильность написания.`;
+                } else if (description.includes('bot is not a member')) {
+                    errorMessage += 
+                        `Бот <b>@tappop_bot</b> не добавлен в канал @${channel}.\n\n` +
+                        `Добавьте бота в администраторы канала и попробуйте снова.`;
+                } else {
+                    errorMessage += `Ошибка: ${description}`;
+                }
+            } else {
+                errorMessage += `Не удалось проверить канал. Убедитесь, что канал существует и бот добавлен в администраторы.`;
+            }
+            
+            bot.sendMessage(chatId, errorMessage, { parse_mode: 'HTML' });
+            return;
+        }
+        
+        // Проверяем баланс пользователя
         const user = await db.getUser(userId);
         if (user.balance < budget) {
             bot.sendMessage(chatId, `❌ Недостаточно средств!\n\n💰 Ваш баланс: ${user.balance} коинов\n💳 Требуется: ${budget} коинов`);
             return;
         }
         
+        // Списываем бюджет
         await db.updateBalance(userId, -budget, 'task_payment', `Создание задания для @${channel}`);
         
+        // Создаем задание
         const task = await db.createTask(userId, channel, reward, budget);
         
         const maxCompletions = Math.floor(budget / reward);
@@ -613,23 +662,11 @@ async function handleCreateTask(msg) {
         message += `💎 Награда: ${reward} коинов за подписку\n`;
         message += `💰 Бюджет: ${budget} коинов\n`;
         message += `👥 Максимум выполнений: ${maxCompletions}\n\n`;
-        message += `🚀 Задание добавлено в общий список и будет показано пользователям в разделе "Заработать".\n\n`;
-        message += `━━━━━━━━━━━━━━━━━━━━━━\n`;
-        message += `⚠️ <b>ВАЖНО!</b> Чтобы проверка подписок работала:\n\n`;
-        message += `1️⃣ Добавьте бота <b>@tappop_bot</b> в администраторы вашего канала\n`;
-        message += `2️⃣ Дайте ему права (достаточно минимальных)\n`;
-        message += `3️⃣ После этого пользователи смогут выполнять задания\n\n`;
-        message += `❌ <b>Если бот не будет админом</b> — проверка подписок не сработает, и пользователи смогут получать награду без подписки!\n`;
-        message += `━━━━━━━━━━━━━━━━━━━━━━\n\n`;
-        message += `💡 <b>Как добавить бота в админы:</b>\n`;
-        message += `• Зайдите в настройки канала\n`;
-        message += `• Выберите "Администраторы"\n`;
-        message += `• Нажмите "Добавить администратора"\n`;
-        message += `• Найдите @tappop_bot\n`;
-        message += `• Дайте ему права (можно минимальные)`;
+        message += `🚀 Задание добавлено в общий список и будет показано пользователям в разделе "Заработать".`;
         
         bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
         
+        // Отправляем уведомления
         await notifyUsersAboutNewTask(task, reward, channel);
         
     } catch (error) {
