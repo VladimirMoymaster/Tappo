@@ -4,7 +4,6 @@ const { Pool } = require('pg');
 const express = require('express');
 const ChatHandler = require('./chat-handler');
 const PaymentHandler = require('./payment-handler');
-const schedule = require('node-schedule'); // ✅ ДОБАВЛЕНО
 
 // Настройка базы данных
 const pool = new Pool({
@@ -47,7 +46,6 @@ const REFERRAL_BONUS = 50;
 const MIN_TASK_REWARD = 15;
 const MAX_TASK_REWARD = 50;
 const WELCOME_BONUS = 100; // 🎁 Приветственный бонус
-const CHANNEL_ID = '@tappo_piar'; // ✅ ДОБАВЛЕНО — ЗАМЕНИТЕ НА ВАШ КАНАЛ
 
 // 🛡️ СПИСОК АДМИНИСТРАТОРОВ
 const ADMINS = [
@@ -954,6 +952,13 @@ bot.onText(/\/stats/, async (msg) => {
     }
 });
 
+// Запуск
+async function start() {
+    await initDatabase();
+    console.log('🚀 Tick Bot запущен и готов к работе!');
+    console.log(`🌐 Бот доступен по адресу: @tappop_bot`);
+}
+
 // ═══════════════════════════════════════════════════════════
 // 🎫 СИСТЕМА ПРОМОКОДОВ
 // ═══════════════════════════════════════════════════════════
@@ -1254,100 +1259,5 @@ bot.onText(/\/promohelp/, async (msg) => {
 
     bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
 });
-
-// ═══════════════════════════════════════════════════════════
-// ⏰ АВТОМАТИЧЕСКИЕ УВЕДОМЛЕНИЯ
-// ═══════════════════════════════════════════════════════════
-
-// Функция отправки уведомления всем пользователям
-async function sendNotificationToAll(message) {
-    try {
-        const usersResult = await pool.query('SELECT id FROM users');
-        const users = usersResult.rows;
-        
-        if (users.length === 0) return;
-        
-        let successCount = 0;
-        let failCount = 0;
-        
-        for (const user of users) {
-            try {
-                await bot.sendMessage(user.id, message, { parse_mode: 'HTML' });
-                successCount++;
-            } catch (error) {
-                failCount++;
-            }
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
-        
-        console.log(`📨 Уведомление отправлено ${successCount} пользователям, не доставлено ${failCount}`);
-        
-    } catch (error) {
-        console.error('Ошибка отправки уведомлений:', error);
-    }
-}
-
-// Функция отправки уведомления в канал
-async function sendChannelNotification(message) {
-    try {
-        await bot.sendMessage(CHANNEL_ID, message, { parse_mode: 'HTML' });
-        console.log('📨 Уведомление отправлено в канал');
-    } catch (error) {
-        console.error('Ошибка отправки в канал:', error);
-    }
-}
-
-// Запуск автоматических уведомлений
-function startAutoNotifications() {
-    
-    // 1. Ежедневное напоминание (в 12:00)
-    schedule.scheduleJob('0 12 * * *', async () => {
-        const message = 
-            `🌞 <b>Доброе утро!</b>\n\n` +
-            `Не забывайте зарабатывать коины в боте!\n` +
-            `💰 Выполняйте задания и получайте награды!\n\n` +
-            `👉 Перейти в бот: @tappop_bot`;
-        
-        await sendNotificationToAll(message);
-        await sendChannelNotification(message);
-    });
-    
-    // 2. Вечернее напоминание (в 20:00)
-    schedule.scheduleJob('0 20 * * *', async () => {
-        const message = 
-            `🌙 <b>Вечернее напоминание!</b>\n\n` +
-            `🔥 Сегодня еще есть время заработать коины!\n` +
-            `📢 Создайте задание или выполните чужие!\n\n` +
-            `👉 Перейти в бот: @tappop_bot`;
-        
-        await sendNotificationToAll(message);
-        await sendChannelNotification(message);
-    });
-    
-    // 3. Еженедельное воскресное уведомление (в 15:00)
-    schedule.scheduleJob('0 15 * * 0', async () => {
-        const message = 
-            `📊 <b>Итоги недели!</b>\n\n` +
-            `Выполняйте задания и копите коины!\n` +
-            `🏆 Лучшие участники получат бонусы!\n\n` +
-            `👉 Перейти в бот: @tappop_bot`;
-        
-        await sendNotificationToAll(message);
-        await sendChannelNotification(message);
-    });
-    
-    console.log('⏰ Автоматические уведомления запущены!');
-}
-
-// Запуск
-async function start() {
-    await initDatabase();
-    
-    // ✅ ЗАПУСКАЕМ АВТОУВЕДОМЛЕНИЯ
-    startAutoNotifications();
-    
-    console.log('🚀 Tick Bot запущен и готов к работе!');
-    console.log(`🌐 Бот доступен по адресу: @tappop_bot`);
-}
 
 start().catch(console.error);
