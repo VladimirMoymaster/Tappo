@@ -1228,6 +1228,7 @@ bot.onText(/\/promohelp/, async (msg) => {
 // ⏰ АВТОМАТИЧЕСКИЕ УВЕДОМЛЕНИЯ
 // ═══════════════════════════════════════════════════════════
 
+// Функция отправки уведомления всем пользователям
 async function sendNotificationToAll(message) {
     try {
         const usersResult = await pool.query('SELECT id FROM users');
@@ -1248,13 +1249,14 @@ async function sendNotificationToAll(message) {
             await new Promise(resolve => setTimeout(resolve, 100));
         }
         
-        console.log(`📨 Уведомление отправлено ${successCount} пользователям`);
+        console.log(`📨 Уведомление отправлено ${successCount} пользователям, не доставлено ${failCount}`);
         
     } catch (error) {
         console.error('Ошибка отправки уведомлений:', error);
     }
 }
 
+// Функция отправки уведомления в канал
 async function sendChannelNotification(message) {
     try {
         await bot.sendMessage(CHANNEL_ID, message, { parse_mode: 'HTML' });
@@ -1264,7 +1266,9 @@ async function sendChannelNotification(message) {
     }
 }
 
+// Запуск автоматических уведомлений
 function startAutoNotifications() {
+    // Ежедневное напоминание в 14:00
     schedule.scheduleJob('0 14 * * *', async () => {
         const message = 
             `🌞 <b>Напоминание от Tappo!</b>\n\n` +
