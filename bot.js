@@ -4,6 +4,7 @@ const { Pool } = require('pg');
 const express = require('express');
 const ChatHandler = require('./chat-handler');
 const PaymentHandler = require('./payment-handler');
+const schedule = require('node-schedule'); // ✅ ДОБАВЛЕНО
 
 // Настройка базы данных
 const pool = new Pool({
@@ -27,7 +28,7 @@ app.use(express.json());
 app.get('/', (req, res) => {
     res.json({ 
         status: 'running',
-        bot: 'Tick Bot',
+        bot: 'Tappo Bot',
         version: '1.0.0',
         timestamp: new Date().toISOString()
     });
@@ -45,13 +46,13 @@ app.listen(PORT, () => {
 const REFERRAL_BONUS = 50;
 const MIN_TASK_REWARD = 15;
 const MAX_TASK_REWARD = 50;
-const WELCOME_BONUS = 100; // 🎁 Приветственный бонус
+const WELCOME_BONUS = 100;
+const CHANNEL_ID = '@tappo_piar'; // ✅ ДОБАВЛЕНО — канал для уведомлений
 
 // 🛡️ СПИСОК АДМИНИСТРАТОРОВ
 const ADMINS = [
-    6919104818,  // 👤 Ваш Telegram ID (основной админ)
-    1669690875,  // 👤 Второй админ (раскомментируйте и вставьте ID)
-    // 9876543210   // 👤 Третий админ
+    6919104818,  // 👤 Ваш Telegram ID
+    1669690875,  // 👤 Второй админ
 ];
 
 // Проверка прав администратора
@@ -76,13 +77,11 @@ const db = {
                 [userId, username, firstName, referredBy, WELCOME_BONUS]
             );
             
-            // Записываем транзакцию о получении приветственного бонуса
             await client.query(
                 'INSERT INTO transactions (user_id, amount, type, description) VALUES ($1, $2, $3, $4)',
                 [userId, WELCOME_BONUS, 'welcome_bonus', '🎉 Приветственный бонус']
             );
             
-            // Начисляем бонус рефереру
             if (referredBy) {
                 await client.query(
                     'UPDATE users SET balance = balance + $1, referral_count = referral_count + 1 WHERE id = $2',
@@ -136,7 +135,6 @@ const db = {
         return result.rows[0];
     },
 
-    // Проверка подписки пользователя на канал
     async checkSubscription(userId, channelUsername) {
         try {
             const chatMember = await bot.getChatMember(`@${channelUsername}`, userId);
@@ -281,9 +279,9 @@ bot.onText(/\/start(.*)/, async (msg, match) => {
             
             user = await db.createUser(userId, username, firstName, referredBy);
             
-            let welcomeMessage = `🎉 Добро пожаловать в Tappo⚡️!\n\n`;
+            let welcomeMessage = `🎉 Добро пожаловать в Tappo!\n\n`;
             welcomeMessage += `💰 Вам начислен приветственный бонус: <b>${WELCOME_BONUS} коинов</b>!\n\n`;
-            welcomeMessage += `💎 Зарабатывайте Tick коины, выполняя задания по подписке на каналы\n`;
+            welcomeMessage += `💎 Зарабатывайте коины, выполняя задания по подписке на каналы\n`;
             welcomeMessage += `📢 Создавайте свои задания для продвижения каналов\n`;
             welcomeMessage += `👥 Приглашайте друзей и получайте бонусы\n\n`;
             
@@ -397,7 +395,7 @@ async function handleAdvertiseCommand(chatId, userId) {
     message += `• Минимальный бюджет: ${MIN_TASK_REWARD} коинов\n`;
     message += `• Бюджет полностью списывается с вашего баланса\n`;
     message += `• Максимум выполнений = бюджет ÷ награда\n`;
-    message += `•❗️ВНИМАНИЕ❗️-Добавьте бота @tappop_bot в администарторы своего канала`;
+    message += `•❗️ВНИМАНИЕ❗️-Добавьте бота @tappop_bot в администраторы своего канала`;
     
     bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
 }
@@ -582,7 +580,6 @@ async function handleCreateTask(msg) {
         const reward = parseInt(parts[2]);
         const budget = parseInt(parts[3]);
         
-        // Валидация
         if (isNaN(reward) || isNaN(budget)) {
             bot.sendMessage(chatId, '❌ Награда и бюджет должны быть числами!');
             return;
@@ -598,7 +595,7 @@ async function handleCreateTask(msg) {
             return;
         }
         
-        // ✅ НОВАЯ ПРОВЕРКА: есть ли бот в канале
+        // Проверка: есть ли бот в канале
         try {
             const botMember = await bot.getChatMember(`@${channel}`, bot.botInfo.id);
             const isBotAdmin = ['administrator', 'creator'].includes(botMember.status);
@@ -619,7 +616,6 @@ async function handleCreateTask(msg) {
                 return;
             }
         } catch (error) {
-            // Бот не может проверить (канал приватный или не существует)
             console.error(`Ошибка проверки бота в канале @${channel}:`, error);
             
             let errorMessage = `❌ <b>Не удалось проверить канал @${channel}!</b>\n\n`;
@@ -643,17 +639,14 @@ async function handleCreateTask(msg) {
             return;
         }
         
-        // Проверяем баланс пользователя
         const user = await db.getUser(userId);
         if (user.balance < budget) {
             bot.sendMessage(chatId, `❌ Недостаточно средств!\n\n💰 Ваш баланс: ${user.balance} коинов\n💳 Требуется: ${budget} коинов`);
             return;
         }
         
-        // Списываем бюджет
         await db.updateBalance(userId, -budget, 'task_payment', `Создание задания для @${channel}`);
         
-        // Создаем задание
         const task = await db.createTask(userId, channel, reward, budget);
         
         const maxCompletions = Math.floor(budget / reward);
@@ -666,7 +659,6 @@ async function handleCreateTask(msg) {
         
         bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
         
-        // Отправляем уведомления
         await notifyUsersAboutNewTask(task, reward, channel);
         
     } catch (error) {
@@ -836,7 +828,7 @@ process.on('unhandledRejection', (error) => {
 // 🚀 АДМИНИСТРАТОРСКИЕ ФУНКЦИИ
 // ═══════════════════════════════════════════════════════════
 
-// Команда для рассылки (только для админов)
+// Команда для рассылки
 bot.onText(/\/broadcast (.+)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
@@ -889,7 +881,6 @@ bot.onText(/\/broadcast (.+)/, async (msg, match) => {
     }
 });
 
-// Команда для подтверждения рассылки (интерактивная)
 bot.onText(/\/broadcast/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
@@ -911,7 +902,7 @@ bot.onText(/\/broadcast/, async (msg) => {
     );
 });
 
-// Статистика бота (только для админов)
+// Статистика бота
 bot.onText(/\/stats/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
@@ -952,30 +943,20 @@ bot.onText(/\/stats/, async (msg) => {
     }
 });
 
-// Запуск
-async function start() {
-    await initDatabase();
-    console.log('🚀 Tick Bot запущен и готов к работе!');
-    console.log(`🌐 Бот доступен по адресу: @tappop_bot`);
-}
-
 // ═══════════════════════════════════════════════════════════
 // 🎫 СИСТЕМА ПРОМОКОДОВ
 // ═══════════════════════════════════════════════════════════
 
-// Функции для работы с промокодами
 const promoDB = {
-    // Создание промокода
     async createPromo(code, amount, limit, expiresAt = null) {
         const result = await pool.query(
-            `INSERT INTO promocodes (code, amount, limit, used_count, expires_at, is_active) 
+            `INSERT INTO promocodes (code, amount, limit_count, used_count, expires_at, is_active) 
              VALUES ($1, $2, $3, 0, $4, true) RETURNING *`,
             [code, amount, limit, expiresAt]
         );
         return result.rows[0];
     },
 
-    // Проверка промокода
     async getPromo(code) {
         const result = await pool.query(
             'SELECT * FROM promocodes WHERE code = $1 AND is_active = true',
@@ -984,7 +965,6 @@ const promoDB = {
         return result.rows[0];
     },
 
-    // Проверка, использовал ли пользователь промокод
     async hasUserUsedPromo(userId, promoId) {
         const result = await pool.query(
             'SELECT id FROM promo_uses WHERE user_id = $1 AND promo_id = $2',
@@ -993,13 +973,11 @@ const promoDB = {
         return result.rows.length > 0;
     },
 
-    // Активация промокода
     async usePromo(userId, promoCode) {
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
 
-            // Получаем промокод
             const promoResult = await client.query(
                 'SELECT * FROM promocodes WHERE code = $1 AND is_active = true FOR UPDATE',
                 [promoCode]
@@ -1010,17 +988,14 @@ const promoDB = {
                 throw new Error('Промокод не найден или неактивен');
             }
 
-            // Проверяем срок действия
             if (promo.expires_at && new Date() > new Date(promo.expires_at)) {
                 throw new Error('Срок действия промокода истек');
             }
 
-            // Проверяем лимит
-            if (promo.limit !== -1 && promo.used_count >= promo.limit) {
+            if (promo.limit_count !== -1 && promo.used_count >= promo.limit_count) {
                 throw new Error('Лимит использований промокода исчерпан');
             }
 
-            // Проверяем, не использовал ли пользователь уже этот промокод
             const usedCheck = await client.query(
                 'SELECT id FROM promo_uses WHERE user_id = $1 AND promo_id = $2',
                 [userId, promo.id]
@@ -1029,25 +1004,21 @@ const promoDB = {
                 throw new Error('Вы уже использовали этот промокод');
             }
 
-            // Записываем использование
             await client.query(
                 'INSERT INTO promo_uses (user_id, promo_id) VALUES ($1, $2)',
                 [userId, promo.id]
             );
 
-            // Обновляем счетчик использований
             await client.query(
                 'UPDATE promocodes SET used_count = used_count + 1 WHERE id = $1',
                 [promo.id]
             );
 
-            // Начисляем бонус
             await client.query(
                 'UPDATE users SET balance = balance + $1 WHERE id = $2',
                 [promo.amount, userId]
             );
 
-            // Записываем транзакцию
             await client.query(
                 'INSERT INTO transactions (user_id, amount, type, description) VALUES ($1, $2, $3, $4)',
                 [userId, promo.amount, 'promo_bonus', `🎫 Бонус по промокоду: ${promoCode}`]
@@ -1064,7 +1035,6 @@ const promoDB = {
         }
     },
 
-    // Получение списка всех промокодов (для админа)
     async getAllPromocodes() {
         const result = await pool.query(
             'SELECT * FROM promocodes ORDER BY created_at DESC'
@@ -1072,7 +1042,6 @@ const promoDB = {
         return result.rows;
     },
 
-    // Деактивация промокода
     async deactivatePromo(promoId) {
         await pool.query(
             'UPDATE promocodes SET is_active = false WHERE id = $1',
@@ -1081,7 +1050,6 @@ const promoDB = {
     }
 };
 
-// Команда для активации промокода (пользовательская)
 bot.onText(/\/promo (.+)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
@@ -1117,7 +1085,6 @@ bot.onText(/\/promo (.+)/, async (msg, match) => {
     }
 });
 
-// Команда для создания промокода (только для админа)
 bot.onText(/\/createpromo (.+) (\d+) (\d+)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
@@ -1144,7 +1111,7 @@ bot.onText(/\/createpromo (.+) (\d+) (\d+)/, async (msg, match) => {
     try {
         const promo = await promoDB.createPromo(code, amount, limit);
         
-        const limitText = promo.limit === -1 ? '♾️ Безлимитный' : `${promo.limit} использований`;
+        const limitText = promo.limit_count === -1 ? '♾️ Безлимитный' : `${promo.limit_count} использований`;
         const expiresText = promo.expires_at ? `📅 Истекает: ${new Date(promo.expires_at).toLocaleDateString('ru-RU')}` : '♾️ Без срока';
 
         bot.sendMessage(
@@ -1165,7 +1132,6 @@ bot.onText(/\/createpromo (.+) (\d+) (\d+)/, async (msg, match) => {
     }
 });
 
-// Команда для просмотра всех промокодов (только для админа)
 bot.onText(/\/promolist/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
@@ -1187,7 +1153,7 @@ bot.onText(/\/promolist/, async (msg) => {
 
         promos.forEach((promo, index) => {
             const status = promo.is_active ? '🟢 Активен' : '🔴 Неактивен';
-            const limitText = promo.limit === -1 ? '♾️' : promo.limit;
+            const limitText = promo.limit_count === -1 ? '♾️' : promo.limit_count;
             const expiresText = promo.expires_at ? new Date(promo.expires_at).toLocaleDateString('ru-RU') : '♾️';
             
             message += `${index + 1}. <b>${promo.code}</b>\n`;
@@ -1205,7 +1171,6 @@ bot.onText(/\/promolist/, async (msg) => {
     }
 });
 
-// Команда для деактивации промокода (только для админа)
 bot.onText(/\/disablepromo (.+)/, async (msg, match) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
@@ -1230,7 +1195,6 @@ bot.onText(/\/disablepromo (.+)/, async (msg, match) => {
     }
 });
 
-// Инструкция по промокодам
 bot.onText(/\/promohelp/, async (msg) => {
     const chatId = msg.chat.id;
     const userId = msg.from.id;
@@ -1259,5 +1223,71 @@ bot.onText(/\/promohelp/, async (msg) => {
 
     bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
 });
+
+// ═══════════════════════════════════════════════════════════
+// ⏰ АВТОМАТИЧЕСКИЕ УВЕДОМЛЕНИЯ
+// ═══════════════════════════════════════════════════════════
+
+async function sendNotificationToAll(message) {
+    try {
+        const usersResult = await pool.query('SELECT id FROM users');
+        const users = usersResult.rows;
+        
+        if (users.length === 0) return;
+        
+        let successCount = 0;
+        let failCount = 0;
+        
+        for (const user of users) {
+            try {
+                await bot.sendMessage(user.id, message, { parse_mode: 'HTML' });
+                successCount++;
+            } catch (error) {
+                failCount++;
+            }
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        console.log(`📨 Уведомление отправлено ${successCount} пользователям`);
+        
+    } catch (error) {
+        console.error('Ошибка отправки уведомлений:', error);
+    }
+}
+
+async function sendChannelNotification(message) {
+    try {
+        await bot.sendMessage(CHANNEL_ID, message, { parse_mode: 'HTML' });
+        console.log('📨 Уведомление отправлено в канал');
+    } catch (error) {
+        console.error('Ошибка отправки в канал:', error);
+    }
+}
+
+function startAutoNotifications() {
+    schedule.scheduleJob('0 14 * * *', async () => {
+        const message = 
+            `🌞 <b>Напоминание от Tappo!</b>\n\n` +
+            `💰 Зарабатывайте коины в боте!\n` +
+            `📢 Выполняйте задания и получайте награды!\n\n` +
+            `👉 Перейти в бот: @tappop_bot`;
+        
+        await sendNotificationToAll(message);
+        await sendChannelNotification(message);
+    });
+    
+    console.log('⏰ Автоматические уведомления запущены!');
+}
+
+// Запуск
+async function start() {
+    await initDatabase();
+    
+    // ✅ ЗАПУСКАЕМ АВТОУВЕДОМЛЕНИЯ
+    startAutoNotifications();
+    
+    console.log('🚀 Tappo Bot запущен и готов к работе!');
+    console.log(`🌐 Бот доступен по адресу: @tappop_bot`);
+}
 
 start().catch(console.error);
