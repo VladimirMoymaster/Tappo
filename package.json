@@ -1,28 +1,29 @@
 {
- "name": "tick-telegram-bot"
-"version": "1.0.0",
-"description": "Telegram bot for mutual su
-"main": "index.js",
-"scripts": {
-"start": "node index.js",
-"dev": "nodemon index.js",
-"build": "echo 'No build step needed for
-"test": "node test-bot.js"
-"init-db": "node init-database.js",
-"railway:start": "node bot.js"
-"dependencies": {
-"node-telegram-bot-api": "^0.65.1",
-"pg": "^8.11.3",
-"dotenv": "^16.3.1",
-"express": "^4.18.2"
-｝，
-"devDependencies": {
-"nodemon": "^3.0.2"
-｝，
-"keywords": ["telegram", "bot", "subscript
-"author": "TickBot",
-"license": "MIT",
-"engines": {
-"node": ">=16.0.0"
+  "name": "tick-telegram-bot",
+  "version": "1.0.0",
+  "description": "Telegram bot for mutual support",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "build": "echo 'No build step needed'",
+    "test": "node test-bot.js",
+    "init-db": "node init-database.js",
+    "railway:start": "node bot.js"
+  },
+  "dependencies": {
+    "node-telegram-bot-api": "^0.65.1",
+    "pg": "^8.11.3",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "keywords": ["telegram", "bot", "subscriptions"],
+  "author": "TickBot",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16.0.0"
   }
 }
